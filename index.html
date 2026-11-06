@@ -1,0 +1,989 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#13151c">
+<style>[hidden]{display:none!important}body{margin:0}</style>
+<title>Tablero de Sonidos</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=Figtree:wght@400;500;600;700&display=swap">
+<style>
+/* Layout: one-screen phone app. Board tabs on top, a 2-column grid of big pads in the middle,
+   a fixed stage bar at the bottom with the STOP button and master volume. */
+:root {
+  --bg: #eceef4;
+  --surface: #ffffff;
+  --surface-2: #f5f6fa;
+  --fg: #181a23;
+  --muted: #5b6074;
+  --line: #d3d7e2;
+  --stop: #d92f3a;
+  --on-stop: #ffffff;
+  --on-pad: #17120e;
+  --focus: #2f6bff;
+  --shadow: 0 1px 0 rgba(24, 26, 35, .08), 0 6px 18px -10px rgba(24, 26, 35, .35);
+  --c-coral: #ff7a59;
+  --c-mango: #ffb627;
+  --c-mint: #3fcf92;
+  --c-sky: #5aaeff;
+  --c-lilac: #ad86ff;
+  --c-rose: #ff6aa6;
+  --c-teal: #2ec6c2;
+  --c-lime: #a8d83f;
+  --font-display: "Bricolage Grotesque", "Avenir Next", "Segoe UI", system-ui, sans-serif;
+  --font-body: "Figtree", "Segoe UI", system-ui, -apple-system, sans-serif;
+  --radius-pad: 22px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #13151c; --surface: #1d2029; --surface-2: #252935; --fg: #f1f2f7; --muted: #9aa0b5;
+    --line: #2f3443; --stop: #ef3b46; --focus: #7ea4ff;
+    --shadow: 0 1px 0 rgba(255,255,255,.04), 0 10px 24px -14px rgba(0,0,0,.8);
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #13151c; --surface: #1d2029; --surface-2: #252935; --fg: #f1f2f7; --muted: #9aa0b5;
+  --line: #2f3443; --stop: #ef3b46; --focus: #7ea4ff;
+  --shadow: 0 1px 0 rgba(255,255,255,.04), 0 10px 24px -14px rgba(0,0,0,.8);
+  color-scheme: dark;
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+html, body { height: 100%; }
+body {
+  background: var(--bg); color: var(--fg);
+  font-family: var(--font-body); font-size: 15px; line-height: 1.4;
+  -webkit-tap-highlight-color: transparent;
+}
+body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 10; background: var(--bg); }
+button, input, select, textarea { font: inherit; color: inherit; }
+:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
+
+.app {
+  min-height: 100%;
+  display: flex; flex-direction: column;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 12px calc(96px + env(safe-area-inset-bottom, 0px));
+  max-width: 980px; margin: 0 auto;
+}
+
+/* Header */
+.top { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5; background: var(--bg); padding-block: 4px 10px; display: grid; gap: 10px; }
+.top-row { display: flex; align-items: center; gap: 10px; }
+.brand { flex: 1; min-width: 0; display: grid; gap: 2px; }
+.brand h1 { margin: 0; font-family: var(--font-display); font-weight: 800; font-size: 1.35rem; letter-spacing: -.02em; line-height: 1.1; text-wrap: balance; }
+.sp-dot { font-size: .72rem; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); white-space: nowrap; }
+.sp-dot.on { color: #1aa34a; }
+.icon-btn {
+  height: 42px; min-width: 42px; padding: 0 12px; border-radius: 999px;
+  border: 1px solid var(--line); background: var(--surface); color: var(--fg);
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  font-weight: 600; cursor: pointer; touch-action: manipulation;
+}
+.icon-btn svg { width: 18px; height: 18px; }
+.icon-btn[aria-pressed="true"] { background: var(--fg); color: var(--bg); border-color: var(--fg); }
+
+.tabs { display: flex; gap: 8px; overflow-x: auto; scrollbar-width: none; margin-inline: -4px; padding: 2px 4px; }
+.tabs::-webkit-scrollbar { display: none; }
+.tab {
+  flex: none; height: 38px; padding: 0 14px; border-radius: 999px; border: 1px solid var(--line);
+  background: transparent; font-weight: 600; cursor: pointer; white-space: nowrap; touch-action: manipulation;
+}
+.tab[aria-selected="true"] { background: var(--surface); border-color: var(--fg); box-shadow: var(--shadow); }
+.tab.add { border-style: dashed; color: var(--muted); }
+
+.editbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 10px; border: 1px dashed var(--line); border-radius: 16px; background: var(--surface-2); }
+.editbar input { flex: 1 1 160px; min-width: 0; height: 40px; border-radius: 10px; border: 1px solid var(--line); background: var(--surface); padding: 0 10px; }
+.editbar .emoji-in { flex: 0 0 56px; text-align: center; }
+.hint { color: var(--muted); font-size: .85rem; margin: 0; }
+
+/* Pads */
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(148px, 1fr)); gap: 12px; padding-top: 4px; }
+.pad {
+  --pad: var(--c-coral);
+  position: relative; overflow: hidden;
+  aspect-ratio: 1 / .92; max-width: 100%;
+  border: 0; border-radius: var(--radius-pad);
+  background:
+    radial-gradient(120% 90% at 20% 0%, rgba(255,255,255,.38), transparent 55%),
+    var(--pad);
+  color: var(--on-pad); text-decoration: none;
+  display: flex; flex-direction: column; justify-content: space-between; align-items: flex-start;
+  padding: 14px; text-align: left; cursor: pointer;
+  box-shadow: inset 0 -5px 0 rgba(0,0,0,.14), var(--shadow);
+  transition: transform .08s ease, box-shadow .08s ease;
+  touch-action: manipulation; user-select: none; -webkit-user-select: none;
+}
+.pad:active { transform: translateY(2px) scale(.985); box-shadow: inset 0 -2px 0 rgba(0,0,0,.14), var(--shadow); }
+.pad-emoji { font-size: 2.4rem; line-height: 1; }
+.pad-name { font-family: var(--font-display); font-weight: 800; font-size: 1.15rem; line-height: 1.1; letter-spacing: -.01em; text-wrap: balance; overflow-wrap: anywhere; }
+.pad-meta { font-size: .7rem; font-weight: 700; letter-spacing: .07em; text-transform: uppercase; opacity: .72; margin-top: 4px; }
+.pad-body { display: grid; min-width: 0; }
+.pad-bar { position: absolute; left: 0; bottom: 0; height: 6px; width: calc(var(--p, 0) * 100%); background: rgba(0,0,0,.38); }
+.pad.is-playing { box-shadow: inset 0 -5px 0 rgba(0,0,0,.14), 0 0 0 3px var(--bg), 0 0 0 6px var(--pad); }
+.pad.is-playing .pad-emoji { animation: bop .6s ease-in-out infinite alternate; }
+.pad .badge { position: absolute; top: 12px; right: 12px; font-size: .66rem; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; padding: 3px 7px; border-radius: 999px; background: rgba(0,0,0,.16); }
+.editing .pad { outline: 2px dashed rgba(0,0,0,.35); outline-offset: -8px; }
+.pad.add-pad { background: transparent; color: var(--muted); border: 2px dashed var(--line); box-shadow: none; justify-content: center; align-items: center; text-align: center; gap: 6px; }
+.pad.add-pad .pad-emoji { font-size: 2rem; }
+@keyframes bop { from { transform: translateY(0) rotate(-4deg); } to { transform: translateY(-3px) rotate(5deg); } }
+
+.empty { grid-column: 1 / -1; text-align: center; padding: 40px 12px; color: var(--muted); }
+
+/* Bottom stage bar */
+.stage {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 6;
+  background: color-mix(in srgb, var(--bg) 88%, transparent);
+  backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+  border-top: 1px solid var(--line);
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-top: 10px; padding-bottom: calc(10px + env(safe-area-inset-bottom, 0px));
+}
+.stage-in { max-width: 980px; margin: 0 auto; display: flex; gap: 14px; align-items: center; }
+.stop {
+  flex: 0 0 auto; height: 56px; padding: 0 22px; border-radius: 16px; border: 0;
+  background: var(--stop); color: var(--on-stop);
+  font-family: var(--font-display); font-weight: 800; font-size: 1.1rem; letter-spacing: .02em;
+  display: inline-flex; align-items: center; gap: 10px; cursor: pointer; touch-action: manipulation;
+  box-shadow: inset 0 -4px 0 rgba(0,0,0,.2);
+}
+.stop:active { transform: translateY(2px); }
+.stop .sq { width: 14px; height: 14px; background: currentColor; border-radius: 3px; }
+.vol { flex: 1; min-width: 0; display: grid; gap: 2px; }
+.vol label { font-size: .7rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); display: flex; justify-content: space-between; }
+.vol output { font-variant-numeric: tabular-nums; }
+input[type="range"] { width: 100%; accent-color: var(--fg); height: 28px; }
+
+/* Sheets */
+.scrim { position: fixed; inset: 0; z-index: 20; background: rgba(10, 11, 16, .5); display: flex; align-items: flex-end; justify-content: center; }
+.sheet {
+  width: 100%; max-width: 560px; max-height: 92%; overflow-y: auto;
+  background: var(--surface); color: var(--fg); border-radius: 22px 22px 0 0;
+  padding-left: max(18px, env(safe-area-inset-left, 0px));
+  padding-right: max(18px, env(safe-area-inset-right, 0px));
+  padding-top: 18px; padding-bottom: calc(18px + env(safe-area-inset-bottom, 0px));
+  display: grid; gap: 16px;
+}
+@media (min-width: 700px) { .scrim { align-items: center; } .sheet { border-radius: 22px; } }
+.sheet h2 { margin: 0; font-family: var(--font-display); font-weight: 800; font-size: 1.35rem; letter-spacing: -.01em; }
+.sheet h3 { margin: 0; font-size: .75rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+.sheet-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.field { display: grid; gap: 6px; }
+.field > label, .field > .lbl { font-size: .78rem; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); }
+.field input[type="text"], .field input[type="number"], .field input[type="url"], .field select, .field textarea {
+  width: 100%; min-height: 44px; border-radius: 12px; border: 1px solid var(--line); background: var(--surface-2); padding: 8px 12px;
+}
+.field textarea { min-height: 96px; font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: .8rem; }
+.row { display: flex; gap: 12px; flex-wrap: wrap; }
+.row > .field { flex: 1 1 140px; min-width: 0; }
+.seg { display: flex; border: 1px solid var(--line); border-radius: 12px; padding: 3px; gap: 3px; background: var(--surface-2); }
+.seg label { flex: 1; text-align: center; padding: 9px 6px; border-radius: 9px; font-weight: 600; font-size: .9rem; cursor: pointer; }
+.seg input { position: absolute; opacity: 0; pointer-events: none; }
+.seg label:has(input:checked) { background: var(--surface); box-shadow: var(--shadow); }
+.seg label:has(input:focus-visible) { outline: 3px solid var(--focus); }
+.swatches { display: flex; flex-wrap: wrap; gap: 10px; }
+.swatches label { width: 38px; height: 38px; border-radius: 50%; background: var(--sw); cursor: pointer; box-shadow: inset 0 -3px 0 rgba(0,0,0,.15); }
+.swatches input { position: absolute; opacity: 0; pointer-events: none; }
+.swatches label:has(input:checked) { box-shadow: 0 0 0 3px var(--surface), 0 0 0 5px var(--fg); }
+.swatches label:has(input:focus-visible) { outline: 3px solid var(--focus); outline-offset: 3px; }
+.emoji-pick { display: flex; flex-wrap: wrap; gap: 6px; }
+.emoji-pick button { width: 40px; height: 40px; border-radius: 10px; border: 1px solid var(--line); background: var(--surface-2); font-size: 1.25rem; cursor: pointer; }
+.btn { min-height: 46px; padding: 0 18px; border-radius: 12px; border: 1px solid var(--line); background: var(--surface-2); font-weight: 700; cursor: pointer; }
+.btn.primary { background: var(--fg); color: var(--bg); border-color: var(--fg); }
+.btn.danger { color: var(--stop); border-color: color-mix(in srgb, var(--stop) 40%, var(--line)); }
+.btn.danger.armed { background: var(--stop); color: var(--on-stop); }
+.actions { display: flex; flex-wrap: wrap; gap: 10px; }
+.actions .spacer { flex: 1; }
+.note { font-size: .88rem; color: var(--muted); margin: 0; }
+.note code { font-size: .8rem; background: var(--surface-2); padding: 1px 5px; border-radius: 6px; overflow-wrap: anywhere; }
+.card { border: 1px solid var(--line); border-radius: 16px; padding: 14px; display: grid; gap: 12px; }
+.filename { font-size: .88rem; color: var(--muted); overflow-wrap: anywhere; }
+
+.toast {
+  position: fixed; left: 50%; bottom: calc(92px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%);
+  z-index: 30; max-width: min(92vw, 440px); padding: 12px 16px; border-radius: 14px;
+  background: var(--fg); color: var(--bg); font-weight: 600; box-shadow: var(--shadow); text-align: center;
+}
+@media (prefers-reduced-motion: reduce) {
+  .pad, .pad:active { transition: none; transform: none; }
+  .pad.is-playing .pad-emoji { animation: none; }
+}
+</style>
+
+<div class="app" id="app">
+  <header class="top">
+    <div class="top-row">
+      <div class="brand"><h1>Tablero de Sonidos</h1><span class="sp-dot" id="spDot">Spotify: enlaces</span></div>
+      <button class="icon-btn" id="editBtn" aria-pressed="false" type="button">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16v4z"/><path d="M13.5 6.5l4 4"/></svg>
+        <span id="editLabel">Editar</span>
+      </button>
+      <button class="icon-btn" id="settingsBtn" type="button" aria-label="Ajustes">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
+      </button>
+    </div>
+    <nav class="tabs" id="tabs" role="tablist" aria-label="Tableros"></nav>
+    <div class="editbar" id="editbar" hidden>
+      <input class="emoji-in" id="boardEmoji" type="text" maxlength="4" aria-label="Emoji del tablero">
+      <input id="boardName" type="text" maxlength="40" aria-label="Nombre del tablero">
+      <button class="btn danger" id="boardDelete" type="button">Borrar tablero</button>
+      <p class="hint" style="flex-basis:100%">Toca un botón para cambiar su sonido, nombre o color.</p>
+    </div>
+  </header>
+
+  <main class="grid" id="grid" aria-live="off"></main>
+</div>
+
+<footer class="stage">
+  <div class="stage-in">
+    <button class="stop" id="stopAll" type="button"><span class="sq" aria-hidden="true"></span>Detener todo</button>
+    <div class="vol">
+      <label for="master"><span>Volumen efectos</span><output id="masterOut">90%</output></label>
+      <input type="range" id="master" min="0" max="100" value="90">
+    </div>
+  </div>
+</footer>
+
+<div class="scrim" id="padScrim" hidden>
+  <form class="sheet" id="padForm" autocomplete="off">
+    <div class="sheet-head"><h2 id="padTitle">Editar botón</h2><button class="icon-btn" type="button" data-close aria-label="Cerrar">✕</button></div>
+    <div class="row">
+      <div class="field" style="flex:0 0 84px"><label for="fEmoji">Emoji</label><input id="fEmoji" type="text" maxlength="4" style="text-align:center;font-size:1.4rem"></div>
+      <div class="field"><label for="fName">Nombre</label><input id="fName" type="text" maxlength="30" required></div>
+    </div>
+    <div class="emoji-pick" id="emojiPick"></div>
+    <div class="field"><span class="lbl">Color</span><div class="swatches" id="swatches"></div></div>
+    <div class="field"><span class="lbl">Sonido</span>
+      <div class="seg" role="radiogroup">
+        <label><input type="radio" name="fType" value="synth">Incluido</label>
+        <label><input type="radio" name="fType" value="file">Mi archivo</label>
+        <label><input type="radio" name="fType" value="spotify">Spotify</label>
+      </div>
+    </div>
+    <div class="field" data-for="synth"><label for="fSynth">Efecto incluido</label><select id="fSynth"></select></div>
+    <div class="field" data-for="file">
+      <label for="fFile">Archivo de audio (mp3, m4a, wav)</label>
+      <input id="fFile" type="file" accept="audio/*">
+      <span class="filename" id="fFileName"></span>
+    </div>
+    <div class="field" data-for="spotify">
+      <label for="fSp">Enlace de Spotify (canción, playlist o álbum)</label>
+      <input id="fSp" type="url" placeholder="https://open.spotify.com/track/…" inputmode="url">
+      <p class="note">En Spotify: Compartir → Copiar enlace, y pégalo aquí.</p>
+    </div>
+    <div class="row">
+      <div class="field" data-for="file spotify"><label for="fStart">Empezar en (segundos)</label><input id="fStart" type="number" min="0" step="1" inputmode="numeric"></div>
+      <div class="field" data-for="synth file"><label for="fMode">Al tocar</label>
+        <select id="fMode">
+          <option value="once">Suena una vez</option>
+          <option value="toggle">Encender / apagar</option>
+          <option value="loop">Repetir en bucle</option>
+        </select>
+      </div>
+    </div>
+    <div class="field" data-for="synth file"><label for="fVol">Volumen del botón</label><input id="fVol" type="range" min="0" max="100"></div>
+    <div class="actions">
+      <button class="btn" type="button" id="padTest">Probar</button>
+      <button class="btn danger" type="button" id="padDelete">Borrar</button>
+      <span class="spacer"></span>
+      <button class="btn primary" type="submit">Guardar</button>
+    </div>
+  </form>
+</div>
+
+<div class="scrim" id="setScrim" hidden>
+  <div class="sheet" role="dialog" aria-labelledby="setTitle">
+    <div class="sheet-head"><h2 id="setTitle">Ajustes</h2><button class="icon-btn" type="button" data-close aria-label="Cerrar">✕</button></div>
+
+    <section class="card" id="spCard">
+      <h3>Spotify</h3>
+      <div id="spEmbedded" hidden>
+        <p class="note">En esta vista, los botones de Spotify abren la canción en la app de Spotify. Para que el tablero controle Spotify directamente (sin salir y empezando en el segundo que elijas), abre la versión publicada en GitHub Pages y conéctala ahí.</p>
+      </div>
+      <div id="spSetup" hidden>
+        <p class="note">1. Entra a <code>developer.spotify.com/dashboard</code> y crea una app (marca “Web API”).<br>2. En “Redirect URIs” agrega exactamente: <code id="spRedirect"></code><br>3. Copia el Client ID y pégalo abajo. Necesitas Spotify Premium y la app de Spotify abierta en el celular.</p>
+        <div class="field"><label for="spClient">Client ID</label><input id="spClient" type="text" spellcheck="false"></div>
+        <div class="actions">
+          <button class="btn primary" type="button" id="spConnect">Conectar Spotify</button>
+          <button class="btn" type="button" id="spDisconnect" hidden>Desconectar</button>
+        </div>
+        <p class="note" id="spStatus"></p>
+      </div>
+    </section>
+
+    <section class="card">
+      <h3>Respaldo</h3>
+      <p class="note">Copia tus tableros como texto para guardarlos o pasarlos a otro celular. Los archivos de audio propios no se incluyen.</p>
+      <div class="actions"><button class="btn" type="button" id="exportBtn">Copiar respaldo</button></div>
+      <div class="field"><label for="importTxt">Pegar respaldo</label><textarea id="importTxt" spellcheck="false"></textarea></div>
+      <div class="actions"><button class="btn" type="button" id="importBtn">Importar</button></div>
+    </section>
+
+    <section class="card">
+      <h3>Ejemplos</h3>
+      <p class="note">Vuelve a los tres tableros de ejemplo. Borra tus cambios.</p>
+      <div class="actions"><button class="btn danger" type="button" id="resetBtn">Restaurar ejemplos</button></div>
+    </section>
+  </div>
+</div>
+
+<div class="toast" id="toast" role="status" hidden></div>
+
+<script>
+(() => {
+'use strict';
+
+/* ---------- utilities ---------- */
+const $ = (s, r = document) => r.querySelector(s);
+const uid = (p = 'p') => p + Math.random().toString(36).slice(2, 9);
+const lsGet = (k) => { try { return localStorage.getItem(k); } catch { return null; } };
+const lsSet = (k, v) => { try { localStorage.setItem(k, v); } catch {} };
+const lsDel = (k) => { try { localStorage.removeItem(k); } catch {} };
+let embedded = true;
+try { embedded = window.self !== window.top; } catch { embedded = true; }
+try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch {}
+
+let toastTimer;
+function toast(msg) {
+  const t = $('#toast'); t.textContent = msg; t.hidden = false;
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => { t.hidden = true; }, 3200);
+}
+function armConfirm(btn, label, action) {
+  if (btn.classList.contains('armed')) { btn.classList.remove('armed'); btn.textContent = btn.dataset.orig; action(); return; }
+  btn.dataset.orig = btn.textContent; btn.textContent = label; btn.classList.add('armed');
+  setTimeout(() => { if (btn.classList.contains('armed')) { btn.classList.remove('armed'); btn.textContent = btn.dataset.orig; } }, 3500);
+}
+
+/* ---------- built-in sounds (synthesized, rendered once to buffers) ---------- */
+function noiseBuf(c, dur) {
+  const n = Math.ceil(c.sampleRate * dur), b = c.createBuffer(1, n, c.sampleRate), d = b.getChannelData(0);
+  for (let i = 0; i < n; i++) d[i] = Math.random() * 2 - 1;
+  return b;
+}
+function burst(c, out, t, o = {}) {
+  const dur = o.dur ?? 0.05, s = c.createBufferSource();
+  s.buffer = c._noise;
+  const f = c.createBiquadFilter(); f.type = o.type || 'bandpass'; f.frequency.value = o.freq ?? 1500; f.Q.value = o.q ?? 1;
+  const g = c.createGain(), pk = o.gain ?? 0.5;
+  g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(pk, t + (o.attack ?? 0.002));
+  g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  let node = g;
+  if (o.pan && c.createStereoPanner) { const p = c.createStereoPanner(); p.pan.value = o.pan; g.connect(p); node = p; }
+  s.connect(f); f.connect(g); node.connect(out);
+  s.start(t, Math.random() * 0.5, dur + 0.05);
+}
+function tone(c, out, t, o) {
+  const os = c.createOscillator(); os.type = o.type || 'sine';
+  os.frequency.setValueAtTime(o.freq, t);
+  if (o.freqEnd) os.frequency.exponentialRampToValueAtTime(o.freqEnd, t + (o.glide ?? o.dur));
+  if (o.detune) os.detune.value = o.detune;
+  const g = c.createGain(), a = o.attack ?? 0.005, r = o.release ?? 0.08, pk = o.gain ?? 0.3;
+  g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(pk, t + a);
+  g.gain.setValueAtTime(pk, Math.max(t + a, t + o.dur - r));
+  g.gain.exponentialRampToValueAtTime(0.0001, t + o.dur);
+  let node = os;
+  if (o.lp) { const f = c.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = o.lp; os.connect(f); node = f; }
+  node.connect(g); g.connect(out);
+  if (o.vib) {
+    const l = c.createOscillator(); l.frequency.value = o.vib;
+    const lg = c.createGain(); lg.gain.setValueAtTime(0, t); lg.gain.linearRampToValueAtTime(o.vibDepth ?? o.freq * 0.02, t + o.dur * 0.4);
+    l.connect(lg); lg.connect(os.frequency); l.start(t); l.stop(t + o.dur);
+  }
+  os.start(t); os.stop(t + o.dur + 0.02);
+}
+function brass(c, out, t, freq, dur, gain = 0.16) {
+  tone(c, out, t, { freq, type: 'sawtooth', dur, gain, attack: 0.03, release: 0.12, lp: 2400 });
+  tone(c, out, t, { freq, type: 'sawtooth', dur, gain: gain * 0.8, attack: 0.03, release: 0.12, lp: 2400, detune: 9 });
+}
+function cymbal(c, out, t, dur = 1.4, gain = 0.4) { burst(c, out, t, { type: 'highpass', freq: 5200, q: 0.5, dur, gain }); }
+
+const SYNTHS = {
+  aplausos: { name: 'Aplausos', dur: 3.4, fn(c, out) {
+    const D = 3.2;
+    for (let i = 0; i < 150; i++) {
+      const t = Math.random() * D;
+      const env = Math.min(1, t / 0.35) * Math.min(1, (D - t) / 1.1);
+      burst(c, out, t, { freq: 900 + Math.random() * 1800, q: 0.8 + Math.random() * 0.8, dur: 0.02 + Math.random() * 0.05, gain: (0.18 + Math.random() * 0.3) * env, pan: Math.random() * 1.6 - 0.8 });
+    }
+  } },
+  redoble: { name: 'Redoble + platillo', dur: 4.4, fn(c, out) {
+    let t = 0;
+    while (t < 2.6) {
+      const k = t / 2.6;
+      burst(c, out, t, { freq: 2400, q: 0.7, dur: 0.07, gain: 0.12 + 0.45 * k });
+      tone(c, out, t, { freq: 190, type: 'triangle', dur: 0.05, gain: 0.08 + 0.2 * k, release: 0.04 });
+      t += 1 / (16 + 14 * k);
+    }
+    cymbal(c, out, 2.72, 1.6, 0.55);
+    tone(c, out, 2.72, { freq: 130, freqEnd: 45, glide: 0.35, type: 'sine', dur: 0.5, gain: 0.7, release: 0.4 });
+  } },
+  fanfarria: { name: 'Fanfarria ganadora', dur: 2.6, fn(c, out) {
+    [0, 0.16, 0.32].forEach((t) => brass(c, out, t, 392, 0.14));
+    brass(c, out, 0.48, 523.25, 1.9, 0.17); brass(c, out, 0.48, 659.25, 1.9, 0.11); brass(c, out, 0.48, 783.99, 1.9, 0.09);
+    cymbal(c, out, 0.48, 1.6, 0.22);
+  } },
+  bocina: { name: 'Bocina de fiesta', dur: 1.5, fn(c, out) {
+    tone(c, out, 0, { freq: 320, freqEnd: 430, glide: 0.18, type: 'sawtooth', dur: 1.3, gain: 0.22, attack: 0.02, release: 0.15, lp: 3200, vib: 7, vibDepth: 10 });
+    tone(c, out, 0, { freq: 322, freqEnd: 434, glide: 0.18, type: 'square', dur: 1.3, gain: 0.08, attack: 0.02, release: 0.15, lp: 2200 });
+    burst(c, out, 0, { type: 'lowpass', freq: 1800, dur: 1.2, gain: 0.05 });
+  } },
+  correcto: { name: '¡Correcto!', dur: 1.2, fn(c, out) {
+    tone(c, out, 0, { freq: 1318.5, dur: 0.35, gain: 0.3, release: 0.3 });
+    tone(c, out, 0, { freq: 2637, dur: 0.25, gain: 0.05, release: 0.2 });
+    tone(c, out, 0.13, { freq: 1760, dur: 1.0, gain: 0.32, release: 0.9 });
+    tone(c, out, 0.13, { freq: 3520, dur: 0.6, gain: 0.05, release: 0.5 });
+  } },
+  error: { name: 'Error (buzzer)', dur: 1.0, fn(c, out) {
+    tone(c, out, 0, { freq: 110, type: 'square', dur: 0.85, gain: 0.2, lp: 1600, release: 0.05 });
+    tone(c, out, 0, { freq: 116.5, type: 'sawtooth', dur: 0.85, gain: 0.16, lp: 1600, release: 0.05 });
+  } },
+  trombon: { name: 'Trombón triste', dur: 3.0, fn(c, out) {
+    const n = [[196, 0, 0.42], [185, 0.46, 0.42], [174.6, 0.92, 0.42], [164.8, 1.38, 1.4]];
+    n.forEach(([f, t, d], i) => tone(c, out, t, { freq: f, type: 'sawtooth', dur: d, gain: 0.3, attack: 0.05, release: 0.12, lp: 950, vib: i === 3 ? 5 : 0, vibDepth: 5 }));
+  } },
+  cuenta: { name: 'Cuenta regresiva 3-2-1', dur: 3.9, fn(c, out) {
+    [0, 1, 2].forEach((t) => tone(c, out, t, { freq: 880, dur: 0.2, gain: 0.32, release: 0.06 }));
+    tone(c, out, 3, { freq: 1760, dur: 0.75, gain: 0.34, release: 0.3 });
+    tone(c, out, 3, { freq: 880, type: 'triangle', dur: 0.75, gain: 0.12, release: 0.3 });
+  } },
+  suspenso: { name: 'Suspenso (tic-tac)', dur: 2.0, fn(c, out) {
+    [0, 0.5, 1, 1.5].forEach((t, i) => {
+      tone(c, out, t, { freq: i % 2 ? 1250 : 1750, dur: 0.06, gain: 0.32, attack: 0.001, release: 0.05 });
+      burst(c, out, t, { freq: i % 2 ? 2500 : 3400, q: 3, dur: 0.03, gain: 0.25 });
+    });
+    [0, 1].forEach((t) => {
+      tone(c, out, t + 0.02, { freq: 62, dur: 0.18, gain: 0.35, release: 0.14 });
+      tone(c, out, t + 0.24, { freq: 58, dur: 0.18, gain: 0.25, release: 0.14 });
+    });
+  } },
+  badum: { name: 'Ba-dum-tss', dur: 1.8, fn(c, out) {
+    tone(c, out, 0, { freq: 240, freqEnd: 150, glide: 0.15, dur: 0.22, gain: 0.55, release: 0.18 });
+    tone(c, out, 0.2, { freq: 170, freqEnd: 100, glide: 0.18, dur: 0.28, gain: 0.6, release: 0.22 });
+    burst(c, out, 0.46, { freq: 2600, q: 0.7, dur: 0.12, gain: 0.45 });
+    cymbal(c, out, 0.46, 1.2, 0.5);
+  } },
+  sonajero: { name: 'Sonajero de bebé', dur: 1.7, fn(c, out) {
+    [0, 0.14, 0.36, 0.5, 0.74, 0.88, 1.1].forEach((t) => {
+      for (let i = 0; i < 9; i++) burst(c, out, t + Math.random() * 0.07, { type: 'bandpass', freq: 5000 + Math.random() * 3000, q: 4, dur: 0.025, gain: 0.35, pan: Math.random() - 0.5 });
+    });
+  } },
+};
+
+/* ---------- example boards ---------- */
+function pad(o) {
+  return Object.assign({ id: uid(), name: '', emoji: '🔊', color: 'coral', type: 'synth', synth: 'aplausos', fileId: null, fileName: '', sp: '', start: 0, mode: 'once', volume: 0.9 }, o);
+}
+function examples() {
+  return [
+    { id: uid('b'), name: 'Baby shower', emoji: '🍼', pads: [
+      pad({ name: 'Aplausos', emoji: '👏', color: 'mango', synth: 'aplausos' }),
+      pad({ name: 'Redoble', emoji: '🥁', color: 'coral', synth: 'redoble' }),
+      pad({ name: '¿Niño o niña?', emoji: '⏳', color: 'lilac', synth: 'suspenso', mode: 'loop' }),
+      pad({ name: 'Sonajero', emoji: '🧸', color: 'rose', synth: 'sonajero' }),
+      pad({ name: '¡Correcto!', emoji: '✅', color: 'mint', synth: 'correcto' }),
+      pad({ name: 'Fallaste', emoji: '😢', color: 'sky', synth: 'trombon' }),
+      pad({ name: 'Happy', emoji: '☀️', color: 'mango', type: 'spotify', sp: 'spotify:track:60nZcImufyMA1MKQY3dcCH' }),
+      pad({ name: 'Música de fondo', emoji: '🎶', color: 'teal', type: 'spotify', sp: 'spotify:playlist:19QERLRUDFcdsDyjE4jgYb' }),
+    ] },
+    { id: uid('b'), name: 'Juegos', emoji: '🎲', pads: [
+      pad({ name: '3, 2, 1', emoji: '⏱️', color: 'sky', synth: 'cuenta' }),
+      pad({ name: 'Suspenso', emoji: '⏳', color: 'lilac', synth: 'suspenso', mode: 'loop' }),
+      pad({ name: '¡Correcto!', emoji: '✅', color: 'mint', synth: 'correcto' }),
+      pad({ name: 'Error', emoji: '❌', color: 'coral', synth: 'error' }),
+      pad({ name: 'Ganador', emoji: '🏆', color: 'mango', synth: 'fanfarria' }),
+      pad({ name: 'Ba-dum-tss', emoji: '😂', color: 'lime', synth: 'badum' }),
+      pad({ name: 'Trombón triste', emoji: '🎺', color: 'rose', synth: 'trombon' }),
+      pad({ name: 'Eye of the Tiger', emoji: '🐯', color: 'teal', type: 'spotify', sp: 'spotify:track:2HHtWyy5CgaQbC7XSoOb0e' }),
+    ] },
+    { id: uid('b'), name: 'Fiesta', emoji: '🎉', pads: [
+      pad({ name: 'Bocina', emoji: '🥳', color: 'rose', synth: 'bocina' }),
+      pad({ name: 'Aplausos', emoji: '👏', color: 'mango', synth: 'aplausos' }),
+      pad({ name: 'Redoble', emoji: '🥁', color: 'coral', synth: 'redoble' }),
+      pad({ name: 'Brindis', emoji: '🥂', color: 'lime', synth: 'fanfarria' }),
+      pad({ name: 'Vivir Mi Vida', emoji: '💃', color: 'lilac', type: 'spotify', sp: 'spotify:track:3QHMxEOAGD51PDlbFPHLyJ' }),
+      pad({ name: 'September', emoji: '🕺', color: 'sky', type: 'spotify', sp: 'spotify:track:2grjqo0Frpf2okIBiifQKs' }),
+    ] },
+  ];
+}
+
+/* ---------- state ---------- */
+const KEY = 'tablero-sonidos-v1';
+let state;
+function load() {
+  try { const s = JSON.parse(lsGet(KEY) || 'null'); if (s && Array.isArray(s.boards) && s.boards.length) return s; } catch {}
+  const b = examples();
+  return { boardId: b[0].id, master: 0.9, boards: b, sp: { clientId: '', token: null, refresh: null, exp: 0 } };
+}
+state = load();
+state.sp = Object.assign({ clientId: '', token: null, refresh: null, exp: 0 }, state.sp || {});
+const save = () => lsSet(KEY, JSON.stringify(state));
+const board = () => state.boards.find((b) => b.id === state.boardId) || state.boards[0];
+const findPad = (id) => { for (const b of state.boards) { const p = b.pads.find((x) => x.id === id); if (p) return p; } return null; };
+
+/* ---------- file storage (IndexedDB, with in-memory fallback) ---------- */
+const memFiles = new Map();
+let dbp = null;
+function db() {
+  if (!dbp) dbp = new Promise((res) => {
+    try {
+      const r = indexedDB.open('tablero-sonidos', 1);
+      r.onupgradeneeded = () => r.result.createObjectStore('files');
+      r.onsuccess = () => res(r.result); r.onerror = () => res(null);
+    } catch { res(null); }
+  });
+  return dbp;
+}
+async function putFile(id, blob) {
+  memFiles.set(id, blob);
+  const d = await db(); if (!d) return;
+  try { d.transaction('files', 'readwrite').objectStore('files').put(blob, id); } catch {}
+}
+async function getFile(id) {
+  if (memFiles.has(id)) return memFiles.get(id);
+  const d = await db(); if (!d) return null;
+  return new Promise((res) => {
+    try { const r = d.transaction('files').objectStore('files').get(id); r.onsuccess = () => res(r.result || null); r.onerror = () => res(null); }
+    catch { res(null); }
+  });
+}
+async function delFile(id) {
+  memFiles.delete(id);
+  const d = await db(); if (!d) return;
+  try { d.transaction('files', 'readwrite').objectStore('files').delete(id); } catch {}
+}
+
+/* ---------- audio engine ---------- */
+let ctx = null, master = null;
+function ac() {
+  if (!ctx) {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    ctx = new AC(); master = ctx.createGain(); master.gain.value = state.master;
+    const comp = ctx.createDynamicsCompressor(); comp.threshold.value = -10; comp.ratio.value = 4;
+    master.connect(comp); comp.connect(ctx.destination);
+  }
+  if (ctx.state === 'suspended') ctx.resume();
+  return ctx;
+}
+const bufCache = new Map();
+async function renderSynth(key) {
+  const def = SYNTHS[key]; if (!def) return null;
+  const sr = 44100, OAC = window.OfflineAudioContext || window.webkitOfflineAudioContext;
+  const c = new OAC(2, Math.ceil(sr * def.dur), sr);
+  c._noise = noiseBuf(c, 2.2);
+  const out = c.createGain(); out.gain.value = 0.9; out.connect(c.destination);
+  def.fn(c, out);
+  return await c.startRendering();
+}
+async function getBuffer(p) {
+  const k = p.type === 'synth' ? 's:' + p.synth : 'f:' + p.fileId;
+  if (bufCache.has(k)) return bufCache.get(k);
+  const job = (async () => {
+    try {
+      if (p.type === 'synth') return await renderSynth(p.synth);
+      if (!p.fileId) return null;
+      const blob = await getFile(p.fileId); if (!blob) return null;
+      const ab = await blob.arrayBuffer();
+      return await new Promise((res, rej) => ac().decodeAudioData(ab, res, rej));
+    } catch { return null; }
+  })();
+  bufCache.set(k, job);
+  const b = await job; if (!b) bufCache.delete(k);
+  return b;
+}
+const playing = new Map();
+async function playPad(p) {
+  const prev = playing.get(p.id);
+  if (prev && (p.mode === 'toggle' || p.mode === 'loop')) { stopPad(p.id, 0.25); return; }
+  const c = ac();
+  const buf = await getBuffer(p);
+  if (!buf) { toast(p.type === 'file' ? 'Este botón no tiene archivo en este celular. Edítalo y elige uno.' : 'No se pudo cargar el sonido.'); return; }
+  if (playing.get(p.id)) stopPad(p.id, 0.03);
+  const src = c.createBufferSource(); src.buffer = buf;
+  const g = c.createGain(); g.gain.value = p.volume ?? 0.9;
+  src.connect(g); g.connect(master);
+  const off = p.type === 'file' ? Math.max(0, Math.min(+p.start || 0, buf.duration - 0.05)) : 0;
+  if (p.mode === 'loop') { src.loop = true; src.loopStart = off; src.loopEnd = buf.duration; }
+  src.start(0, off);
+  const e = { src, g, t0: c.currentTime, off, dur: buf.duration - off, loop: src.loop };
+  playing.set(p.id, e);
+  src.onended = () => { if (playing.get(p.id) === e) { playing.delete(p.id); paintPad(p.id); } };
+  paintPad(p.id); tick();
+}
+function stopPad(id, fade = 0.2) {
+  const e = playing.get(id); if (!e) return;
+  playing.delete(id);
+  const t = ctx.currentTime;
+  try {
+    e.g.gain.cancelScheduledValues(t); e.g.gain.setValueAtTime(e.g.gain.value, t);
+    e.g.gain.linearRampToValueAtTime(0, t + fade); e.src.stop(t + fade + 0.02);
+  } catch {}
+  paintPad(id);
+}
+let raf = 0;
+function tick() {
+  if (raf) return;
+  const step = () => {
+    raf = 0;
+    if (!playing.size) return;
+    for (const [id, e] of playing) {
+      const el = document.querySelector(`.pad[data-id="${id}"]`); if (!el) continue;
+      const el2 = (ctx.currentTime - e.t0);
+      el.style.setProperty('--p', e.loop ? ((el2 % e.dur) / e.dur).toFixed(3) : Math.min(1, el2 / e.dur).toFixed(3));
+    }
+    raf = requestAnimationFrame(step);
+  };
+  raf = requestAnimationFrame(step);
+}
+function stopAll() {
+  for (const id of [...playing.keys()]) stopPad(id, 0.35);
+  if (spActive) spPause();
+}
+
+/* ---------- Spotify ---------- */
+const SP_SCOPES = 'user-modify-playback-state user-read-playback-state';
+let spActive = null;
+const spConnected = () => !embedded && !!(state.sp.refresh || state.sp.token);
+const redirectUri = () => location.origin + location.pathname;
+function parseSp(s) {
+  if (!s) return null;
+  s = s.trim();
+  let m = s.match(/^spotify:(track|playlist|album|artist):([A-Za-z0-9]+)/);
+  if (!m) m = s.match(/open\.spotify\.com\/(?:intl-[a-z-]+\/)?(?:embed\/)?(track|playlist|album|artist)\/([A-Za-z0-9]+)/);
+  if (!m) return null;
+  return { kind: m[1], id: m[2], uri: `spotify:${m[1]}:${m[2]}`, url: `https://open.spotify.com/${m[1]}/${m[2]}` };
+}
+function b64url(buf) { return btoa(String.fromCharCode(...new Uint8Array(buf))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''); }
+async function spConnect() {
+  const cid = state.sp.clientId.trim();
+  if (!cid) { toast('Pega primero tu Client ID de Spotify.'); return; }
+  const v = b64url(crypto.getRandomValues(new Uint8Array(48)));
+  const ch = b64url(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(v)));
+  lsSet('sp_verifier', v);
+  const q = new URLSearchParams({ response_type: 'code', client_id: cid, scope: SP_SCOPES, code_challenge_method: 'S256', code_challenge: ch, redirect_uri: redirectUri() });
+  location.href = 'https://accounts.spotify.com/authorize?' + q;
+}
+function saveTokens(j) {
+  state.sp.token = j.access_token;
+  if (j.refresh_token) state.sp.refresh = j.refresh_token;
+  state.sp.exp = Date.now() + ((j.expires_in || 3600) - 60) * 1000;
+  save();
+}
+async function spHandleRedirect() {
+  if (embedded) return;
+  const q = new URLSearchParams(location.search);
+  const code = q.get('code'), err = q.get('error');
+  if (!code && !err) return;
+  history.replaceState(null, '', location.pathname + location.hash);
+  if (err) { toast('No se autorizó la conexión con Spotify.'); return; }
+  try {
+    const r = await fetch('https://accounts.spotify.com/api/token', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ grant_type: 'authorization_code', code, redirect_uri: redirectUri(), client_id: state.sp.clientId, code_verifier: lsGet('sp_verifier') || '' }) });
+    if (!r.ok) throw new Error(r.status);
+    saveTokens(await r.json()); lsDel('sp_verifier');
+    toast('Spotify conectado.');
+  } catch { toast('No se pudo conectar con Spotify. Revisa el Client ID y la Redirect URI.'); }
+  renderAll();
+}
+async function spToken() {
+  if (state.sp.token && Date.now() < state.sp.exp) return state.sp.token;
+  if (!state.sp.refresh) return null;
+  try {
+    const r = await fetch('https://accounts.spotify.com/api/token', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ grant_type: 'refresh_token', refresh_token: state.sp.refresh, client_id: state.sp.clientId }) });
+    if (!r.ok) throw new Error(r.status);
+    saveTokens(await r.json()); return state.sp.token;
+  } catch { return null; }
+}
+async function spApi(method, path, body, retry = true) {
+  const tk = await spToken();
+  if (!tk) return { status: 401, ok: false };
+  const r = await fetch('https://api.spotify.com/v1' + path, { method, headers: { Authorization: 'Bearer ' + tk, 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined });
+  if (r.status === 401 && retry) { state.sp.exp = 0; return spApi(method, path, body, false); }
+  return r;
+}
+async function spPlay(p) {
+  const info = parseSp(p.sp);
+  if (!info) { toast('Este botón no tiene un enlace de Spotify válido.'); return; }
+  if (spActive === p.id) { spPause(); return; }
+  const pos = Math.round((+p.start || 0) * 1000);
+  const body = info.kind === 'track' ? { uris: [info.uri], position_ms: pos } : { context_uri: info.uri, position_ms: pos };
+  const el = document.querySelector(`.pad[data-id="${p.id}"]`); if (el) el.style.opacity = '.75';
+  try {
+    let r = await spApi('PUT', '/me/player/play', body);
+    if (r.status === 404) {
+      const d = await spApi('GET', '/me/player/devices');
+      const j = d.ok ? await d.json() : { devices: [] };
+      const dev = (j.devices || []).find((x) => !x.is_restricted);
+      if (!dev) { toast('Abre la app de Spotify en el celular, pon cualquier canción y vuelve a tocar.'); return; }
+      r = await spApi('PUT', '/me/player/play?device_id=' + encodeURIComponent(dev.id), body);
+    }
+    if (r.ok) { const prev = spActive; spActive = p.id; if (prev) paintPad(prev); paintPad(p.id); }
+    else if (r.status === 401) toast('La sesión de Spotify expiró. Conéctalo de nuevo en Ajustes.');
+    else if (r.status === 403) toast('Spotify rechazó la reproducción. Se necesita Premium.');
+    else toast('Spotify no respondió (' + r.status + ').');
+  } catch { toast('Sin conexión con Spotify.'); }
+  finally { if (el) el.style.opacity = ''; }
+}
+async function spPause() {
+  const prev = spActive; spActive = null; if (prev) paintPad(prev);
+  try { await spApi('PUT', '/me/player/pause'); } catch {}
+}
+
+/* ---------- rendering ---------- */
+let editMode = false;
+const COLORS = ['coral', 'mango', 'lime', 'mint', 'teal', 'sky', 'lilac', 'rose'];
+const EMOJIS = ['👏', '🥁', '🎉', '🥳', '🏆', '✅', '❌', '😂', '😢', '🎺', '⏱️', '⏳', '🍼', '🧸', '👶', '💃', '🎶', '🔔', '🎂', '🥂'];
+const fmtTime = (s) => { s = Math.round(+s || 0); return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); };
+function metaFor(p) {
+  if (p.type === 'spotify') {
+    const i = parseSp(p.sp); const what = i ? ({ track: 'canción', playlist: 'playlist', album: 'álbum', artist: 'artista' })[i.kind] : 'sin enlace';
+    if (!spConnected()) return 'Spotify · abre la app';
+    return 'Spotify · ' + what + (+p.start ? ' · ' + fmtTime(p.start) : '');
+  }
+  const mode = { once: '', toggle: ' · on/off', loop: ' · bucle' }[p.mode] || '';
+  return (p.type === 'file' ? 'Archivo' : 'Efecto') + mode;
+}
+function padHTML(p) {
+  const i = p.type === 'spotify' ? parseSp(p.sp) : null;
+  const asLink = p.type === 'spotify' && !spConnected() && i;
+  const tag = asLink ? 'a' : 'button';
+  const attrs = asLink ? `href="${i.url}" target="_blank" rel="noopener"` : 'type="button"';
+  const esc = (s) => String(s).replace(/[&<>"]/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[ch]);
+  return `<${tag} class="pad" data-id="${p.id}" ${attrs} style="--pad: var(--c-${COLORS.includes(p.color) ? p.color : 'coral'})">
+    ${p.type === 'spotify' ? '<span class="badge">Spotify</span>' : ''}
+    <span class="pad-emoji" aria-hidden="true">${esc(p.emoji || '🔊')}</span>
+    <span class="pad-body"><span class="pad-name">${esc(p.name || 'Sin nombre')}</span><span class="pad-meta">${esc(metaFor(p))}</span></span>
+    <span class="pad-bar"></span></${tag}>`;
+}
+function renderTabs() {
+  const b = board();
+  $('#tabs').innerHTML = state.boards.map((x) => `<button class="tab" role="tab" type="button" data-board="${x.id}" aria-selected="${x.id === b.id}">${x.emoji || ''} ${x.name.replace(/[&<>"]/g, '')}</button>`).join('')
+    + (editMode ? '<button class="tab add" type="button" id="addBoard">+ Tablero</button>' : '');
+  $('#editbar').hidden = !editMode;
+  if (editMode) { $('#boardName').value = b.name; $('#boardEmoji').value = b.emoji || ''; }
+}
+function renderGrid() {
+  const b = board();
+  const g = $('#grid');
+  g.classList.toggle('editing', editMode);
+  let html = b.pads.map(padHTML).join('');
+  if (editMode) html += '<button class="pad add-pad" type="button" id="addPad"><span class="pad-emoji" aria-hidden="true">＋</span><span class="pad-name">Agregar botón</span></button>';
+  if (!b.pads.length && !editMode) html = '<p class="empty">Este tablero está vacío. Toca “Editar” para agregar botones.</p>';
+  g.innerHTML = html;
+  for (const id of playing.keys()) paintPad(id);
+  if (spActive) paintPad(spActive);
+}
+function renderStatus() {
+  const d = $('#spDot');
+  d.textContent = embedded ? 'Spotify: abre la app' : spConnected() ? 'Spotify conectado' : 'Spotify: abre la app';
+  d.classList.toggle('on', spConnected());
+}
+function renderAll() { renderTabs(); renderGrid(); renderStatus(); }
+function paintPad(id) {
+  const el = document.querySelector(`.pad[data-id="${id}"]`); if (!el) return;
+  const on = playing.has(id) || spActive === id;
+  el.classList.toggle('is-playing', on);
+  if (!playing.has(id)) el.style.setProperty('--p', 0);
+}
+
+/* ---------- interactions ---------- */
+$('#grid').addEventListener('click', (ev) => {
+  if (ev.target.closest('#addPad')) { addPad(); return; }
+  const el = ev.target.closest('.pad'); if (!el) return;
+  const p = findPad(el.dataset.id); if (!p) return;
+  wake();
+  if (editMode) { ev.preventDefault(); openEditor(p.id); return; }
+  if (el.tagName === 'A') return; // opens Spotify app/web
+  if (p.type === 'spotify') spPlay(p); else playPad(p);
+});
+$('#tabs').addEventListener('click', (ev) => {
+  if (ev.target.closest('#addBoard')) {
+    const b = { id: uid('b'), name: 'Nuevo tablero', emoji: '✨', pads: [] };
+    state.boards.push(b); state.boardId = b.id; save(); renderAll(); $('#boardName').focus(); $('#boardName').select(); return;
+  }
+  const t = ev.target.closest('[data-board]'); if (!t) return;
+  state.boardId = t.dataset.board; save(); renderAll(); prewarm();
+});
+$('#editBtn').addEventListener('click', () => {
+  editMode = !editMode;
+  $('#editBtn').setAttribute('aria-pressed', editMode);
+  $('#editLabel').textContent = editMode ? 'Listo' : 'Editar';
+  renderAll();
+});
+$('#boardName').addEventListener('input', (e) => { board().name = e.target.value || 'Tablero'; save(); renderTabsKeepFocus(); });
+$('#boardEmoji').addEventListener('input', (e) => { board().emoji = e.target.value; save(); renderTabsKeepFocus(); });
+function renderTabsKeepFocus() {
+  const b = board(); const t = $(`[data-board="${b.id}"]`); if (t) t.textContent = `${b.emoji || ''} ${b.name}`;
+}
+$('#boardDelete').addEventListener('click', (e) => {
+  if (state.boards.length < 2) { toast('Debe quedar al menos un tablero.'); return; }
+  armConfirm(e.currentTarget, '¿Seguro? Toca otra vez', () => {
+    const b = board();
+    b.pads.forEach((p) => { if (p.fileId) delFile(p.fileId); stopPad(p.id, 0.1); });
+    state.boards = state.boards.filter((x) => x.id !== b.id); state.boardId = state.boards[0].id; save(); renderAll();
+  });
+});
+$('#stopAll').addEventListener('click', stopAll);
+$('#master').value = Math.round(state.master * 100);
+$('#masterOut').textContent = Math.round(state.master * 100) + '%';
+$('#master').addEventListener('input', (e) => {
+  state.master = e.target.value / 100; $('#masterOut').textContent = e.target.value + '%';
+  if (master) master.gain.setTargetAtTime(state.master, ctx.currentTime, 0.03);
+  save();
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') { closeSheets(); return; }
+  if (e.target.matches('input, textarea, select') || editMode) return;
+  if (e.key === ' ') { e.preventDefault(); stopAll(); return; }
+  const n = parseInt(e.key, 10);
+  if (n >= 1 && n <= 9) { const p = board().pads[n - 1]; if (p) (p.type === 'spotify' ? (spConnected() && spPlay(p)) : playPad(p)); }
+});
+
+/* wake lock keeps the screen on during the event */
+let lock = null;
+async function wake() {
+  try { if (!lock && navigator.wakeLock) { lock = await navigator.wakeLock.request('screen'); lock.addEventListener('release', () => { lock = null; }); } } catch {}
+}
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && lock === null && ctx) wake(); });
+
+/* ---------- pad editor ---------- */
+let editingId = null, pendingFile = null;
+const typeVal = () => (document.querySelector('input[name="fType"]:checked') || {}).value || 'synth';
+function syncTypeFields() {
+  const t = typeVal();
+  document.querySelectorAll('#padForm [data-for]').forEach((el) => { el.hidden = !el.dataset.for.split(' ').includes(t); });
+}
+$('#fSynth').innerHTML = Object.entries(SYNTHS).map(([k, v]) => `<option value="${k}">${v.name}</option>`).join('');
+$('#swatches').innerHTML = COLORS.map((c) => `<label style="--sw: var(--c-${c})" title="${c}"><input type="radio" name="fColor" value="${c}" aria-label="${c}"></label>`).join('');
+$('#emojiPick').innerHTML = EMOJIS.map((e) => `<button type="button" aria-label="Usar ${e}">${e}</button>`).join('');
+$('#emojiPick').addEventListener('click', (e) => { const b = e.target.closest('button'); if (b) $('#fEmoji').value = b.textContent; });
+document.querySelectorAll('input[name="fType"]').forEach((r) => r.addEventListener('change', syncTypeFields));
+$('#fFile').addEventListener('change', (e) => {
+  const f = e.target.files && e.target.files[0]; if (!f) return;
+  pendingFile = f; $('#fFileName').textContent = 'Elegido: ' + f.name;
+  if (!$('#fName').value.trim() || $('#fName').value === 'Nuevo botón') $('#fName').value = f.name.replace(/\.[^.]+$/, '').slice(0, 30);
+});
+function openEditor(id) {
+  const p = findPad(id); if (!p) return;
+  editingId = id; pendingFile = null;
+  $('#padTitle').textContent = 'Editar botón';
+  $('#fName').value = p.name; $('#fEmoji').value = p.emoji;
+  (document.querySelector(`input[name="fColor"][value="${p.color}"]`) || document.querySelector('input[name="fColor"]')).checked = true;
+  document.querySelector(`input[name="fType"][value="${p.type}"]`).checked = true;
+  $('#fSynth').value = p.synth || 'aplausos';
+  $('#fFile').value = ''; $('#fFileName').textContent = p.fileName ? 'Actual: ' + p.fileName : 'Todavía no hay archivo.';
+  $('#fSp').value = p.sp ? (parseSp(p.sp) || {}).url || p.sp : '';
+  $('#fStart').value = p.start || 0; $('#fMode').value = p.mode || 'once';
+  $('#fVol').value = Math.round((p.volume ?? 0.9) * 100);
+  const del = $('#padDelete'); del.classList.remove('armed'); del.textContent = 'Borrar';
+  syncTypeFields();
+  $('#padScrim').hidden = false;
+  setTimeout(() => $('#fName').focus({ preventScroll: true }), 30);
+}
+function addPad() {
+  const p = pad({ name: 'Nuevo botón', emoji: '🔔', color: COLORS[board().pads.length % COLORS.length] });
+  board().pads.push(p); save(); renderGrid(); openEditor(p.id);
+}
+async function readForm(p) {
+  const old = { type: p.type, synth: p.synth, fileId: p.fileId };
+  p.name = $('#fName').value.trim() || 'Sin nombre';
+  p.emoji = $('#fEmoji').value.trim() || '🔊';
+  p.color = (document.querySelector('input[name="fColor"]:checked') || {}).value || 'coral';
+  p.type = typeVal();
+  p.synth = $('#fSynth').value;
+  p.sp = $('#fSp').value.trim();
+  p.start = Math.max(0, +$('#fStart').value || 0);
+  p.mode = $('#fMode').value;
+  p.volume = $('#fVol').value / 100;
+  if (pendingFile) {
+    const fid = uid('f');
+    await putFile(fid, pendingFile);
+    if (old.fileId) { delFile(old.fileId); bufCache.delete('f:' + old.fileId); }
+    p.fileId = fid; p.fileName = pendingFile.name; pendingFile = null;
+  }
+  if (p.type === 'spotify' && p.sp && !parseSp(p.sp)) toast('Ese enlace no parece de Spotify. Copia el enlace desde Compartir.');
+}
+$('#padForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const p = findPad(editingId); if (!p) return;
+  stopPad(p.id, 0.1);
+  await readForm(p); save(); closeSheets(); renderGrid();
+});
+$('#padTest').addEventListener('click', async () => {
+  const p = findPad(editingId); if (!p) return;
+  const tmp = Object.assign({}, p, { id: 'preview' });
+  tmp.type = typeVal(); tmp.synth = $('#fSynth').value; tmp.start = +$('#fStart').value || 0; tmp.volume = $('#fVol').value / 100; tmp.mode = 'once'; tmp.sp = $('#fSp').value;
+  if (tmp.type === 'spotify') {
+    const i = parseSp(tmp.sp);
+    if (!i) { toast('Pega un enlace de Spotify para probar.'); return; }
+    if (spConnected()) spPlay(tmp); else toast('Guarda el botón y tócalo para abrirlo en Spotify.');
+    return;
+  }
+  if (tmp.type === 'file' && pendingFile) {
+    const fid = 'preview-file'; memFiles.set(fid, pendingFile); bufCache.delete('f:' + fid); tmp.fileId = fid;
+  }
+  stopPad('preview', 0.05); playPad(tmp);
+});
+$('#padDelete').addEventListener('click', (e) => {
+  armConfirm(e.currentTarget, '¿Seguro? Toca otra vez', () => {
+    const b = board(); const p = findPad(editingId); if (!p) return;
+    stopPad(p.id, 0.1); if (p.fileId) delFile(p.fileId);
+    b.pads = b.pads.filter((x) => x.id !== p.id); save(); closeSheets(); renderGrid();
+  });
+});
+
+/* ---------- settings ---------- */
+function openSettings() {
+  $('#spEmbedded').hidden = !embedded; $('#spSetup').hidden = embedded;
+  $('#spRedirect').textContent = redirectUri();
+  $('#spClient').value = state.sp.clientId || '';
+  $('#spDisconnect').hidden = !spConnected();
+  $('#spConnect').textContent = spConnected() ? 'Reconectar' : 'Conectar Spotify';
+  $('#spStatus').textContent = spConnected() ? 'Conectado. Los botones de Spotify controlan la app de Spotify de este celular.' : '';
+  const r = $('#resetBtn'); r.classList.remove('armed'); r.textContent = 'Restaurar ejemplos';
+  $('#setScrim').hidden = false;
+}
+$('#settingsBtn').addEventListener('click', openSettings);
+$('#spClient').addEventListener('input', (e) => { state.sp.clientId = e.target.value.trim(); save(); });
+$('#spConnect').addEventListener('click', spConnect);
+$('#spDisconnect').addEventListener('click', () => { state.sp.token = null; state.sp.refresh = null; state.sp.exp = 0; spActive = null; save(); openSettings(); renderAll(); });
+$('#exportBtn').addEventListener('click', () => {
+  const data = JSON.stringify({ app: 'tablero-sonidos', v: 1, boards: state.boards });
+  const ta = $('#importTxt');
+  const fallback = () => { ta.value = data; ta.focus(); ta.select(); toast('Respaldo en el cuadro de abajo. Cópialo.'); };
+  try { navigator.clipboard.writeText(data).then(() => toast('Respaldo copiado.'), fallback); } catch { fallback(); }
+});
+$('#importBtn').addEventListener('click', () => {
+  try {
+    const j = JSON.parse($('#importTxt').value);
+    if (!j || !Array.isArray(j.boards) || !j.boards.length) throw 0;
+    stopAll();
+    state.boards = j.boards.map((b) => ({ id: b.id || uid('b'), name: String(b.name || 'Tablero'), emoji: b.emoji || '', pads: (b.pads || []).map((p) => pad(p)) }));
+    state.boardId = state.boards[0].id; save(); closeSheets(); renderAll(); prewarm(); toast('Tableros importados.');
+  } catch { toast('Ese texto no es un respaldo válido.'); }
+});
+$('#resetBtn').addEventListener('click', (e) => {
+  armConfirm(e.currentTarget, '¿Seguro? Toca otra vez', () => {
+    stopAll(); const b = examples(); state.boards = b; state.boardId = b[0].id; save(); closeSheets(); renderAll(); prewarm(); toast('Ejemplos restaurados.');
+  });
+});
+
+/* ---------- sheets ---------- */
+function closeSheets() { $('#padScrim').hidden = true; $('#setScrim').hidden = true; stopPad('preview', 0.1); }
+document.querySelectorAll('.scrim').forEach((s) => s.addEventListener('click', (e) => { if (e.target === s || e.target.closest('[data-close]')) closeSheets(); }));
+
+/* ---------- boot ---------- */
+function prewarm() { board().pads.forEach((p) => { if (p.type === 'synth') getBuffer(p); }); }
+renderAll();
+prewarm();
+spHandleRedirect();
+})();
+</script>
+
+</html>
