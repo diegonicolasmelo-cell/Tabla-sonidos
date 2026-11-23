@@ -1,0 +1,662 @@
+<title>Kine UCI</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap">
+<style>
+/* Layout: one-screen phone game. HUD strip on top, the ICU ward canvas (2 columns x 3 beds,
+   corridor in the middle) scaled to fit, and two big arcade buttons at the bottom.
+   Single deliberate dark look: a night-shift monitor screen. */
+:root {
+  color-scheme: dark;
+  --bg: #0b1220;          /* noche de la UCI */
+  --panel: #131d33;
+  --line: #2a3a5e;
+  --fg: #e8f1ff;
+  --muted: #8ea3c8;
+  --ok: #3ee08f;          /* verde monitor */
+  --warn: #ffd23f;
+  --crit: #ff4d5e;
+  --torax: #2ec4b6;       /* boton maniobras */
+  --aspirar: #f3a712;     /* boton aspirar */
+  --font-pixel: "Press Start 2P", ui-monospace, "Courier New", monospace;
+}
+[hidden] { display: none !important; }
+html, body { height: 100%; }
+body {
+  background: var(--bg); color: var(--fg); font-family: var(--font-pixel);
+  overflow: hidden; touch-action: manipulation; user-select: none; -webkit-user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+#app {
+  height: 100%; display: flex; flex-direction: column; align-items: center; gap: 8px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 8px; box-sizing: border-box;
+}
+#hud {
+  width: 100%; max-width: 520px; display: grid; grid-template-columns: 1fr auto 1fr; align-items: center;
+  font-size: 10px; gap: 8px; line-height: 1.4;
+}
+#hud .l { justify-self: start; } #hud .r { justify-self: end; text-align: right; }
+#hud .lab { color: var(--muted); font-size: 7px; letter-spacing: .08em; display: block; }
+#hearts { color: var(--crit); font-size: 12px; letter-spacing: 2px; text-align: center; }
+#stage { position: relative; flex: 1 1 auto; min-height: 0; width: 100%; display: flex; justify-content: center; align-items: center; }
+canvas#game {
+  image-rendering: pixelated; image-rendering: crisp-edges; display: block;
+  border: 2px solid var(--line); border-radius: 4px; background: #000;
+}
+#toast {
+  position: absolute; left: 50%; top: 10px; transform: translateX(-50%);
+  background: var(--panel); border: 2px solid var(--warn); color: var(--warn);
+  padding: 8px 10px; font-size: 8px; line-height: 1.6; text-align: center; max-width: 90%;
+  pointer-events: none; opacity: 0; transition: opacity .2s;
+}
+#toast.show { opacity: 1; }
+#toast.bad { border-color: var(--crit); color: var(--crit); }
+#toast.good { border-color: var(--ok); color: var(--ok); }
+#controls { width: 100%; max-width: 520px; display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.btn {
+  font-family: var(--font-pixel); font-size: 12px; border: none; border-radius: 6px; padding: 16px 8px 14px;
+  color: #08121f; cursor: pointer; box-shadow: 0 5px 0 rgba(0,0,0,.45); touch-action: none;
+}
+.btn small { display: block; font-size: 7px; margin-top: 6px; opacity: .75; }
+.btn:active, .btn.on { transform: translateY(3px); box-shadow: 0 2px 0 rgba(0,0,0,.45); filter: brightness(1.15); }
+.btn:focus-visible { outline: 3px solid var(--fg); outline-offset: 2px; }
+#bTorax { background: var(--torax); }
+#bAspirar { background: var(--aspirar); }
+#topbtns { display: flex; gap: 6px; justify-content: flex-end; }
+.mini {
+  font-family: var(--font-pixel); font-size: 8px; background: var(--panel); color: var(--fg);
+  border: 2px solid var(--line); border-radius: 4px; padding: 6px 7px; cursor: pointer;
+}
+.mini:focus-visible { outline: 2px solid var(--fg); }
+.overlay {
+  position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; z-index: 5;
+  background: rgba(5, 9, 18, .86);
+}
+.card {
+  background: var(--panel); border: 3px solid var(--line); border-radius: 6px; padding: 18px 16px;
+  max-width: 400px; width: 100%; box-sizing: border-box; text-align: center; line-height: 1.8; font-size: 8px;
+  max-height: 100%; overflow-y: auto;
+}
+.card h1 { font-size: 20px; margin: 0 0 4px; color: var(--ok); text-shadow: 3px 3px 0 #0a5a36; letter-spacing: .04em; }
+.card h2 { font-size: 13px; margin: 0 0 10px; color: var(--crit); }
+.card .sub { color: var(--muted); margin: 0 0 12px; }
+.card ul { text-align: left; padding-left: 0; list-style: none; margin: 0 0 14px; display: grid; gap: 8px; }
+.card li { display: grid; grid-template-columns: 22px 1fr; gap: 6px; align-items: start; }
+.card .k { color: var(--warn); }
+.card .big { font-size: 14px; color: var(--warn); margin: 6px 0 12px; }
+.card .start { background: var(--ok); width: 100%; }
+.card p { margin: 0 0 10px; }
+</style>
+
+<div id="app">
+  <div id="hud">
+    <div class="l"><span class="lab">PUNTOS</span><span id="score">0</span></div>
+    <div><span class="lab" style="text-align:center">VIDAS</span><div id="hearts">♥♥♥</div></div>
+    <div class="r"><span class="lab">TURNO</span><span id="clock">08:00</span></div>
+  </div>
+  <div id="stage">
+    <canvas id="game" width="192" height="240" aria-label="Sala de UCI con camas de pacientes"></canvas>
+    <div id="toast" role="status" aria-live="polite"></div>
+
+    <div class="overlay" id="titleScreen">
+      <div class="card">
+        <h1>KINE UCI</h1>
+        <p class="sub">Turno de noche · UCI adultos</p>
+        <ul>
+          <li><span class="k">1</span><span>Toca una cama (o usa las flechas) para caminar hasta el paciente.</span></li>
+          <li><span class="k">2</span><span><b style="color:var(--torax)">TORAX</b>: aprieta varias veces para hacer maniobras y movilizar secreciones (barra amarilla).</span></li>
+          <li><span class="k">3</span><span><b style="color:var(--aspirar)">ASPIRAR</b>: mantén apretado para sacar lo movilizado. Sin maniobras antes, el paciente desatura.</span></li>
+          <li><span class="k">!</span><span>Si la SpO₂ llega a 0 hay código azul y pierdes una vida. Cada hora ingresan más pacientes.</span></li>
+        </ul>
+        <p class="sub">Teclado: flechas · Z tórax · X aspirar · P pausa</p>
+        <button class="btn start" id="startBtn">EMPEZAR TURNO</button>
+        <p class="sub" id="bestLine" style="margin-top:10px"></p>
+      </div>
+    </div>
+
+    <div class="overlay" id="overScreen" hidden>
+      <div class="card">
+        <h2>FIN DEL TURNO</h2>
+        <p id="overMsg"></p>
+        <div class="big" id="overScore">0</div>
+        <p class="sub" id="overStats"></p>
+        <button class="btn start" id="againBtn">OTRO TURNO</button>
+      </div>
+    </div>
+
+    <div class="overlay" id="pauseScreen" hidden>
+      <div class="card">
+        <h1 style="font-size:16px">PAUSA</h1>
+        <p class="sub">Los pacientes esperan.</p>
+        <button class="btn start" id="resumeBtn">SEGUIR</button>
+      </div>
+    </div>
+  </div>
+  <div id="controls">
+    <button class="btn" id="bTorax">TORAX<small>apretar · Z</small></button>
+    <button class="btn" id="bAspirar">ASPIRAR<small>mantener · X</small></button>
+  </div>
+  <div id="topbtns" style="width:100%;max-width:520px">
+    <button class="mini" id="muteBtn">SONIDO: SI</button>
+    <button class="mini" id="pauseBtn">PAUSA</button>
+  </div>
+</div>
+
+<script>
+(() => {
+'use strict';
+const W = 192, H = 240;
+const cv = document.getElementById('game');
+const ctx = cv.getContext('2d');
+ctx.imageSmoothingEnabled = false;
+const $ = id => document.getElementById(id);
+
+// ---------- Layout ----------
+// 6 slots: column 0 (left) / 1 (right), rows 0..2. Corridor between x=68 and x=124.
+const SLOT_W = 64, SLOT_H = 78;
+const slots = [];
+for (let r = 0; r < 3; r++) for (let c = 0; c < 2; c++) {
+  const x = c === 0 ? 2 : 126, y = 4 + r * SLOT_H;
+  slots.push({ c, r, x, y, standX: c === 0 ? 76 : 116, standY: y + 46 });
+}
+// unlock order: top-left, top-right, mid-left, mid-right, bottom-left, bottom-right
+const PATIENTS = [
+  ['Don Luis', 'neumonía'], ['Sra. Rosa', 'EPOC'], ['Don Pedro', 'SDRA'], ['Sra. Marta', 'post operatorio'],
+  ['Don Carlos', 'COVID'], ['Sra. Inés', 'fibrosis quística'], ['Don Hugo', 'TEC grave'], ['Sra. Ana', 'sepsis'],
+  ['Don Raúl', 'bronquiectasias'], ['Sra. Elena', 'Guillain-Barré'], ['Don Jorge', 'quemado'], ['Sra. Gloria', 'neumonía aspirativa']
+];
+const BLANKETS = ['#4f7cff', '#e0559b', '#3cb371', '#b36ae2', '#ff8c42', '#2bb3c0'];
+
+// ---------- Pixel font (3x5) for monitors ----------
+const GLYPH = {
+  '0':'111101101101111','1':'010110010010111','2':'111001111100111','3':'111001111001111',
+  '4':'101101111001001','5':'111100111001111','6':'111100111101111','7':'111001001001001',
+  '8':'111101111101111','9':'111101111001111','+':'000010111010000','-':'000000111000000',
+  '!':'010010010000010','%':'101001010100101',' ':'000000000000000'
+};
+function text(str, x, y, color, s = 1) {
+  ctx.fillStyle = color;
+  for (const ch of String(str)) {
+    const g = GLYPH[ch] || GLYPH[' '];
+    for (let i = 0; i < 15; i++) if (g[i] === '1') ctx.fillRect(x + (i % 3) * s, y + ((i / 3) | 0) * s, s, s);
+    x += 4 * s;
+  }
+}
+const textW = (str, s = 1) => String(str).length * 4 * s - s;
+const R = (x, y, w, h, c) => { ctx.fillStyle = c; ctx.fillRect(x | 0, y | 0, w, h); };
+
+// ---------- Audio (chiptune via WebAudio) ----------
+let ac = null, muted = false, suctionNode = null;
+function audio() {
+  if (!ac) { try { ac = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { ac = null; } }
+  if (ac && ac.state === 'suspended') ac.resume();
+  return ac;
+}
+function tone(freq, dur, type = 'square', vol = 0.08, slide = 0, delay = 0) {
+  if (muted || !ac) return;
+  const t = ac.currentTime + delay;
+  const o = ac.createOscillator(), g = ac.createGain();
+  o.type = type; o.frequency.setValueAtTime(freq, t);
+  if (slide) o.frequency.exponentialRampToValueAtTime(Math.max(20, freq + slide), t + dur);
+  g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  o.connect(g).connect(ac.destination); o.start(t); o.stop(t + dur + 0.02);
+}
+const sfx = {
+  press: () => { tone(110, 0.08, 'square', 0.10, -60); },
+  alarm: () => { tone(880, 0.09, 'square', 0.05); tone(660, 0.09, 'square', 0.05, 0, 0.11); tone(880, 0.09, 'square', 0.05, 0, 0.22); },
+  beep: () => tone(1320, 0.04, 'square', 0.025),
+  save: () => { [523, 659, 784, 1046].forEach((f, i) => tone(f, 0.1, 'square', 0.06, 0, i * 0.07)); },
+  code: () => { [440, 349, 262, 196].forEach((f, i) => tone(f, 0.22, 'sawtooth', 0.07, 0, i * 0.2)); },
+  level: () => { [392, 523, 659, 784, 659, 784].forEach((f, i) => tone(f, 0.09, 'triangle', 0.09, 0, i * 0.08)); },
+  nope: () => { tone(160, 0.15, 'square', 0.07); tone(120, 0.2, 'square', 0.07, 0, 0.12); },
+  plug: () => { tone(300, 0.3, 'triangle', 0.08, 400); },
+};
+function suction(on) {
+  if (!ac || muted) on = false;
+  if (on && !suctionNode) {
+    const len = ac.sampleRate * 0.5, buf = ac.createBuffer(1, len, ac.sampleRate), d = buf.getChannelData(0);
+    for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+    const src = ac.createBufferSource(); src.buffer = buf; src.loop = true;
+    const f = ac.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = 900; f.Q.value = 1.4;
+    const g = ac.createGain(); g.gain.value = 0.05;
+    src.connect(f).connect(g).connect(ac.destination); src.start();
+    suctionNode = { src, f, g };
+  } else if (!on && suctionNode) {
+    try { suctionNode.src.stop(); } catch (e) {}
+    suctionNode = null;
+  }
+}
+
+// ---------- Game state ----------
+let best = 0;
+try { best = +localStorage.getItem('kineuci-best') || 0; } catch (e) {}
+let G = null, state = 'title', last = 0;
+const keys = { torax: false, aspirar: false };
+
+function newPatient(slotIdx) {
+  const p = PATIENTS[(Math.random() * PATIENTS.length) | 0];
+  return {
+    slot: slotIdx, name: p[0], dx: p[1], blanket: BLANKETS[slotIdx],
+    S: 25 + Math.random() * 20, M: 0, sat: 94 + ((Math.random() * 4) | 0),
+    rate: 0.8 + Math.random() * 0.8, alarm: false, wasLow: false, press: 0, plug: 0,
+    breath: Math.random() * 6, enter: 1
+  };
+}
+function reset() {
+  G = {
+    t: 0, level: 1, score: 0, lives: 3, saved: 0, codes: 0, aspirated: 0,
+    patients: [], kine: { x: slots[0].standX, y: slots[0].standY, target: 0, walk: 0, face: -1, at: true },
+    pressCd: 0, sucking: false, nopeCd: 0, alarmCd: 0, beepCd: 0, plugCd: 14, tick: 0, pops: [], particles: [],
+    shake: 0
+  };
+  for (let i = 0; i < 3; i++) G.patients.push(newPatient(i));
+  G.patients[0].enter = 0; G.patients[1].enter = 0; G.patients[2].enter = 0;
+}
+const diff = () => 1 + 0.14 * (G.level - 1);
+const bedsFor = lvl => Math.min(6, 2 + lvl);
+const patientAt = i => G.patients.find(p => p.slot === i);
+
+// ---------- Toast ----------
+let toastT = 0;
+function toast(msg, kind = '') {
+  const el = $('toast'); el.textContent = msg; el.className = 'show ' + kind; toastT = 2.2;
+}
+
+// ---------- Input ----------
+function goTo(i) {
+  if (!G || state !== 'play') return;
+  if (i < 0 || i > 5) return;
+  G.kine.target = i; G.kine.at = false;
+}
+function moveDir(dx, dy) {
+  const s = slots[G.kine.target];
+  let c = s.c, r = s.r;
+  if (dx) c = dx < 0 ? 0 : 1;
+  if (dy) r = Math.max(0, Math.min(2, r + dy));
+  goTo(r * 2 + c);
+}
+function doTorax() {
+  if (state !== 'play') return;
+  audio();
+  const k = G.kine;
+  if (!k.at) return;
+  if (G.pressCd > 0) return;
+  const p = patientAt(k.target);
+  if (!p) { toast('Cama vacía'); return; }
+  G.pressCd = 0.11;
+  p.press = 0.12;
+  const moved = Math.min(p.S, 5.5);
+  p.S -= moved; p.M += moved;
+  sfx.press();
+  const s = slots[p.slot];
+  for (let i = 0; i < 2; i++) G.particles.push({ x: s.x + 22 + Math.random() * 20, y: s.y + 46, vx: 0, vy: -20 - Math.random() * 20, life: 0.5, c: '#e8e05a' });
+  if (moved < 0.5 && p.M < 1) toast('No quedan secreciones', 'good');
+}
+function bindHold(el, key, onDown) {
+  const down = e => { e.preventDefault(); audio(); keys[key] = true; el.classList.add('on'); if (onDown) onDown(); };
+  const up = e => { e.preventDefault(); keys[key] = false; el.classList.remove('on'); };
+  el.addEventListener('pointerdown', down);
+  el.addEventListener('pointerup', up);
+  el.addEventListener('pointercancel', up);
+  el.addEventListener('pointerleave', up);
+  el.addEventListener('contextmenu', e => e.preventDefault());
+}
+bindHold($('bTorax'), 'torax', doTorax);
+bindHold($('bAspirar'), 'aspirar');
+
+window.addEventListener('keydown', e => {
+  const k = e.key.toLowerCase();
+  if (state === 'title' && (k === 'enter' || k === ' ')) { e.preventDefault(); start(); return; }
+  if (state === 'over' && k === 'enter') { start(); return; }
+  if (k === 'p' || k === 'escape') { togglePause(); return; }
+  if (state !== 'play') return;
+  if (['arrowleft','arrowright','arrowup','arrowdown',' '].includes(k)) e.preventDefault();
+  if (k === 'arrowleft' || k === 'a') moveDir(-1, 0);
+  else if (k === 'arrowright' || k === 'd') moveDir(1, 0);
+  else if (k === 'arrowup' || k === 'w') moveDir(0, -1);
+  else if (k === 'arrowdown' || k === 's') moveDir(0, 1);
+  else if (k === 'z' || k === 'j') { if (!e.repeat) { keys.torax = true; doTorax(); } }
+  else if (k === 'x' || k === 'k' || k === ' ') { audio(); keys.aspirar = true; }
+});
+window.addEventListener('keyup', e => {
+  const k = e.key.toLowerCase();
+  if (k === 'z' || k === 'j') keys.torax = false;
+  if (k === 'x' || k === 'k' || k === ' ') keys.aspirar = false;
+});
+cv.addEventListener('pointerdown', e => {
+  if (state !== 'play') return;
+  audio();
+  const r = cv.getBoundingClientRect();
+  const x = (e.clientX - r.left) / r.width * W, y = (e.clientY - r.top) / r.height * H;
+  const col = x < W / 2 ? 0 : 1, row = Math.max(0, Math.min(2, Math.floor((y - 4) / SLOT_H)));
+  goTo(row * 2 + col);
+});
+
+function togglePause() {
+  if (state === 'play') { state = 'pause'; $('pauseScreen').hidden = false; suction(false); }
+  else if (state === 'pause') { state = 'play'; $('pauseScreen').hidden = true; last = performance.now(); }
+}
+$('pauseBtn').addEventListener('click', togglePause);
+$('resumeBtn').addEventListener('click', togglePause);
+$('muteBtn').addEventListener('click', () => {
+  muted = !muted; $('muteBtn').textContent = 'SONIDO: ' + (muted ? 'NO' : 'SI'); if (muted) suction(false);
+});
+document.addEventListener('visibilitychange', () => { if (document.hidden && state === 'play') togglePause(); });
+$('startBtn').addEventListener('click', start);
+$('againBtn').addEventListener('click', start);
+
+function start() {
+  audio(); reset(); state = 'play';
+  $('titleScreen').hidden = true; $('overScreen').hidden = true; $('pauseScreen').hidden = true;
+  toast('08:00 · Recibes el turno con 3 pacientes', 'good');
+  last = performance.now();
+}
+function gameOver() {
+  state = 'over'; suction(false); keys.aspirar = keys.torax = false;
+  const isBest = G.score > best;
+  if (isBest) { best = G.score; try { localStorage.setItem('kineuci-best', String(best)); } catch (e) {} }
+  $('overMsg').textContent = `Tres códigos azules. Aguantaste hasta las ${clockStr()}.`;
+  $('overScore').textContent = G.score + ' pts' + (isBest ? ' · ¡RECORD!' : '');
+  $('overStats').textContent = `Pacientes recuperados: ${G.saved} · Secreciones aspiradas: ${Math.round(G.aspirated)} ml · Récord: ${best}`;
+  $('overScreen').hidden = false;
+}
+function clockStr() {
+  const mins = 8 * 60 + Math.floor(G.t / 40 * 60);
+  const h = Math.floor(mins / 60) % 24, m = mins % 60;
+  return String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0');
+}
+function pop(x, y, str, c) { G.pops.push({ x, y, str, c, life: 1 }); }
+
+// ---------- Update ----------
+function update(dt) {
+  G.t += dt;
+  const d = diff();
+  // level up every 40 s (one hour of shift)
+  const lvl = 1 + Math.floor(G.t / 40);
+  if (lvl > G.level) {
+    G.level = lvl;
+    sfx.level();
+    const want = bedsFor(lvl);
+    if (G.patients.length < want) {
+      const free = [0, 1, 2, 3, 4, 5].find(i => !patientAt(i));
+      const np = newPatient(free); np.S += 10; np.sat = 90;
+      G.patients.push(np);
+      toast(`${clockStr()} · Ingresa ${np.name} a la cama ${free + 1} (${np.dx})`);
+      sfx.plug();
+    } else {
+      toast(`${clockStr()} · Los pacientes están más secretores`);
+    }
+  }
+
+  // kine walking
+  const k = G.kine, s = slots[k.target];
+  const dx = s.standX - k.x, dy = s.standY - k.y, dist = Math.hypot(dx, dy);
+  const speed = 95;
+  if (dist > 0.5) {
+    const st = Math.min(dist, speed * dt);
+    // walk in corridor: first move horizontally to corridor center if changing rows across columns
+    k.x += dx / dist * st; k.y += dy / dist * st; k.walk += dt; k.at = false;
+  } else { k.x = s.standX; k.y = s.standY; k.at = true; }
+  k.face = s.c === 0 ? -1 : 1;
+
+  G.pressCd -= dt; G.nopeCd -= dt;
+  if (keys.torax && k.at && G.pressCd <= -0.12) doTorax(); // held button auto-repeats slowly
+
+  // suction
+  const cur = k.at ? patientAt(k.target) : null;
+  G.sucking = keys.aspirar && !!cur;
+  suction(G.sucking);
+  if (suctionNode) suctionNode.f.frequency.value = cur && cur.M > 0 ? 700 + Math.random() * 300 : 1500;
+
+  let anyLow = false;
+  for (const p of G.patients) {
+    p.breath += dt; p.press -= dt; p.enter = Math.max(0, p.enter - dt);
+    // secretions build up
+    if (p.S + p.M < 100) p.S += p.rate * d * dt * 1.15;
+    p.plug = Math.max(0, p.plug - dt);
+    const load = p.S + p.M;
+    if (load > 28) p.sat -= (load - 28) / 72 * 5.2 * d * dt;
+    else p.sat += (28 - load) / 28 * 7 * dt;
+
+    if (G.sucking && p === cur) {
+      if (p.M > 0.1) {
+        const take = Math.min(p.M, 38 * dt);
+        p.M -= take; G.aspirated += take * 0.4;
+        G.score += Math.round(take * 2);
+        p.sat -= 1.2 * dt;
+        const sl = slots[p.slot];
+        if (Math.random() < 0.6) G.particles.push({ x: sl.x + 32, y: sl.y + 26, tx: k.x, ty: k.y - 8, t: 0, life: 0.4, c: '#d9cf3c', tube: true });
+      } else {
+        p.sat -= 6 * dt; // aspirar sin movilizar: hipoxemia
+        if (G.nopeCd <= 0) {
+          G.nopeCd = 1.6; sfx.nope();
+          toast(p.S > 5 ? 'Secreciones adheridas: haz maniobras de TORAX primero' : 'Ya no hay nada que aspirar', 'bad');
+        }
+      }
+    }
+    p.sat = Math.max(0, Math.min(99, p.sat));
+    if (p.sat < 85) { anyLow = true; p.wasLow = true; }
+    if (p.wasLow && p.sat >= 92) {
+      p.wasLow = false; G.saved++; G.score += 100; sfx.save();
+      const sl = slots[p.slot]; pop(sl.x + 32, sl.y + 20, '+100', '#3ee08f');
+    }
+    if (p.sat <= 0) {
+      G.lives--; G.codes++; G.shake = 0.5; sfx.code();
+      toast(`¡Código azul en cama ${p.slot + 1}! El equipo reanima a ${p.name}`, 'bad');
+      p.sat = 75; p.S = 35; p.M = 0; p.wasLow = true;
+      if (G.lives <= 0) { gameOver(); return; }
+    }
+  }
+
+  // mucus plug events from level 2
+  if (G.level >= 2) {
+    G.plugCd -= dt;
+    if (G.plugCd <= 0) {
+      G.plugCd = Math.max(5, 15 - G.level * 1.6) + Math.random() * 6;
+      const p = G.patients[(Math.random() * G.patients.length) | 0];
+      p.S = Math.min(100 - p.M, p.S + 30); p.plug = 3; p.sat -= 6;
+      toast(`¡Tapón mucoso en cama ${p.slot + 1}!`, 'bad'); sfx.nope();
+    }
+  }
+
+  // score tick: +1 per well oxygenated patient each second
+  G.tick += dt;
+  if (G.tick >= 1) { G.tick -= 1; for (const p of G.patients) if (p.sat >= 92) G.score += 2; }
+
+  G.alarmCd -= dt;
+  if (anyLow && G.alarmCd <= 0) { sfx.alarm(); G.alarmCd = 1.4; }
+  G.beepCd -= dt;
+  if (cur && G.beepCd <= 0) { sfx.beep(); G.beepCd = 60 / (70 + (100 - cur.sat)); }
+
+  for (const q of G.particles) {
+    q.life -= dt;
+    if (q.tube) { q.t += dt / 0.4; } else { q.x += q.vx * dt; q.y += q.vy * dt; }
+  }
+  G.particles = G.particles.filter(q => q.life > 0);
+  for (const q of G.pops) { q.life -= dt * 0.8; q.y -= 14 * dt; }
+  G.pops = G.pops.filter(q => q.life > 0);
+  G.shake = Math.max(0, G.shake - dt);
+  if (toastT > 0) { toastT -= dt; if (toastT <= 0) $('toast').className = ''; }
+}
+
+// ---------- Draw ----------
+function drawFloor() {
+  // checkered vinyl floor
+  for (let y = 0; y < H; y += 8) for (let x = 0; x < W; x += 8)
+    R(x, y, 8, 8, ((x + y) / 8) % 2 ? '#1b2a3f' : '#203149');
+  // corridor stripe
+  R(68, 0, 56, H, '#24384f');
+  for (let y = 4; y < H; y += 16) R(95, y, 2, 8, '#3a5373');
+  // walls between slots
+  for (let r = 1; r < 3; r++) { R(0, 4 + r * SLOT_H - 2, 66, 2, '#0f1828'); R(126, 4 + r * SLOT_H - 2, 66, 2, '#0f1828'); }
+}
+function satColor(s) { return s >= 90 ? '#3ee08f' : s >= 80 ? '#ffd23f' : '#ff4d5e'; }
+function skinColor(s) { return s >= 90 ? '#f0b48a' : s >= 80 ? '#d8a8a4' : s >= 60 ? '#aaa3d6' : '#7d8fe6'; }
+
+function drawSlot(i, tnow) {
+  const s = slots[i], p = patientAt(i), x = s.x, y = s.y;
+  const sel = G && G.kine.target === i;
+  const outer = s.c === 0 ? x : x + 58; // secretion bar side
+  // monitor
+  const mx = s.c === 0 ? x + 8 : x + 26, my = y + 1;
+  R(mx - 1, my - 1, 32, 17, '#5d6b82');
+  R(mx, my, 30, 15, '#05080d');
+  // ventilator
+  const vx = s.c === 0 ? x + 42 : x + 8;
+  R(vx, y + 2, 14, 12, '#c9d3e3'); R(vx + 2, y + 4, 10, 5, '#1c2a44');
+  // bed
+  const bx = x + 12, by = y + 18, bw = 40, bh = 56;
+  R(bx - 2, by - 2, bw + 4, bh + 4, sel ? '#ffd23f' : '#6f7c92');
+  R(bx, by, bw, bh, '#dfe7f2');
+  R(bx, by, bw, 4, '#9aa8bf'); // headboard
+  if (!p) {
+    R(bx + 6, by + 6, 28, 10, '#ffffff');
+    for (let k2 = 0; k2 < 3; k2++) R(bx + 4, by + 22 + k2 * 10, bw - 8, 1, '#c6d0de');
+    text(i + 1, bx + bw - 6, by + bh - 7, '#8a96ab');
+    text('--', mx + 8, my + 5, '#2a3a5e', 2 > 1 ? 1 : 1);
+    return;
+  }
+  const crit = p.sat < 80, blinkOn = Math.floor(tnow * 4) % 2 === 0;
+  if (crit && blinkOn) { R(bx - 2, by - 2, bw + 4, 2, '#ff4d5e'); R(bx - 2, by + bh, bw + 4, 2, '#ff4d5e'); R(bx - 2, by, 2, bh, '#ff4d5e'); R(bx + bw, by, 2, bh, '#ff4d5e'); }
+  // monitor content: pleth wave + SpO2
+  const sc = satColor(p.sat);
+  for (let k2 = 0; k2 < 12; k2++) {
+    const ph = (tnow * 2 + k2 / 12) % 1;
+    const hy = ph < 0.25 ? Math.sin(ph / 0.25 * Math.PI) * 4 : 0;
+    R(mx + 2 + k2, my + 10 - hy * (p.sat / 100), 1, 1, '#4fd0ff');
+  }
+  const v = Math.round(p.sat), vs = String(v);
+  if (!(crit && !blinkOn)) text(vs, mx + 29 - textW(vs, 2) - 1, my + 3, sc, 2);
+  // ventilator wave
+  const vph = (p.breath * 0.6) % 1;
+  R(vx + 3, y + 8 - Math.round(Math.sin(vph * Math.PI * 2) * 2), 8, 1, '#7cf5c2');
+  // pillow + patient
+  R(bx + 8, by + 5, 24, 9, '#ffffff');
+  const breathe = Math.sin(p.breath * 2.2) > 0 ? 1 : 0;
+  const pressing = p.press > 0;
+  const cx = bx + bw / 2;
+  // head
+  R(cx - 5, by + 6, 10, 10, skinColor(p.sat));
+  R(cx - 5, by + 5, 10, 3, '#4a3426');
+  R(cx - 3, by + 11, 2, 1, '#2a1a10'); R(cx + 1, by + 11, 2, 1, '#2a1a10');
+  // ET tube to ventilator
+  R(cx - 1, by + 14, 2, 3, '#e9f0ff');
+  ctx.fillStyle = '#b9c6d9';
+  const tx0 = cx, ty0 = by + 15, tx1 = vx + 7, ty1 = y + 14;
+  for (let k2 = 0; k2 <= 10; k2++) { const t = k2 / 10; ctx.fillRect(Math.round(tx0 + (tx1 - tx0) * t), Math.round(ty0 + (ty1 - ty0) * t - Math.sin(t * Math.PI) * 4), 1, 1); }
+  // body + blanket
+  const squish = pressing ? 2 : 0;
+  R(bx + 5 - breathe + squish, by + 17, bw - 10 + breathe * 2 - squish * 2, 34, p.blanket);
+  R(bx + 5 - breathe + squish, by + 17, bw - 10 + breathe * 2 - squish * 2, 3, 'rgba(255,255,255,.35)');
+  R(bx + 8, by + 20 + 3, 4, 10, skinColor(p.sat)); R(bx + bw - 12, by + 23, 4, 10, skinColor(p.sat)); // arms
+  if (pressing) { R(cx - 8, by + 24, 16, 1, '#ffffff'); R(cx - 6, by + 27, 12, 1, '#ffffff'); }
+  // secretion "gurgle" bubbles near mouth when loaded
+  const load = p.S + p.M;
+  if (load > 45) for (let k2 = 0; k2 < Math.min(4, (load - 45) / 12); k2++) {
+    const bb = (tnow * 1.5 + k2 * 0.3) % 1;
+    R(cx + 6 + k2 * 2, by + 14 - bb * 6, 2, 2, '#e6dc6a');
+  }
+  if (p.plug > 0 && blinkOn) text('!', cx - 1, by - 8, '#ff4d5e', 2);
+  // bed number
+  text(i + 1, bx + bw - 6, by + bh - 7, '#5a6984');
+  // secretion bar (outer side)
+  const barX = outer + 1, barY = by, barH = 54;
+  R(barX - 1, barY - 1, 6, barH + 2, '#05080d');
+  const hS = Math.round(p.S / 100 * barH), hM = Math.round(p.M / 100 * barH);
+  R(barX, barY + barH - hS, 4, hS, '#9a6b2f');
+  R(barX, barY + barH - hS - hM, 4, hM, '#e8e05a');
+  // arrival animation
+  if (p.enter > 0) R(bx, by, bw, bh * p.enter, '#22324b');
+}
+
+function drawKine(tnow) {
+  const k = G.kine; let x = Math.round(k.x), y = Math.round(k.y);
+  const f = k.face; // -1 faces left bed, +1 faces right bed
+  const walking = !k.at, step = walking ? (Math.floor(k.walk * 8) % 2) : 0;
+  const p = k.at ? patientAt(k.target) : null;
+  const pressing = p && p.press > 0;
+  // shadow
+  R(x - 6, y + 9, 12, 3, 'rgba(0,0,0,.35)');
+  // legs
+  R(x - 4, y + 4 + (step ? 1 : 0), 3, 6 - (step ? 1 : 0), '#16325c');
+  R(x + 1, y + 4 + (step ? 0 : 1), 3, 6 - (step ? 0 : 1), '#16325c');
+  R(x - 4, y + 9, 3, 1, '#ffffff'); R(x + 1, y + 9, 3, 1, '#ffffff');
+  // body (scrubs)
+  R(x - 5, y - 6, 10, 11, '#1fb5a6');
+  R(x - 1, y - 6, 2, 3, '#0e7f74'); // V neck
+  // stethoscope
+  R(x - 3, y - 5, 1, 5, '#2b2b2b'); R(x + 2, y - 5, 1, 5, '#2b2b2b'); R(x - 1, y - 1, 2, 2, '#c0c0c0');
+  // arms
+  if (pressing || (G.sucking && p)) {
+    const ax = f < 0 ? x - 12 : x + 5;
+    R(ax, y - 4 + (pressing ? 1 : 0), 7, 3, '#1fb5a6');
+    R(f < 0 ? ax - 2 : ax + 7, y - 4 + (pressing ? 1 : 0), 2, 3, '#f0c39a');
+  } else {
+    R(x - 7, y - 5, 2, 7, '#1fb5a6'); R(x + 5, y - 5, 2, 7, '#1fb5a6');
+    R(x - 7, y + 2, 2, 2, '#f0c39a'); R(x + 5, y + 2, 2, 2, '#f0c39a');
+  }
+  // head
+  R(x - 4, y - 14, 8, 8, '#f0c39a');
+  R(x - 4, y - 15, 8, 3, '#3a2416'); R(f < 0 ? x + 2 : x - 4, y - 13, 2, 4, '#3a2416');
+  R(f < 0 ? x - 3 : x + 1, y - 11, 1, 1, '#1a1a1a'); R(f < 0 ? x - 1 : x + 3, y - 11, 1, 1, '#1a1a1a');
+  R(x - 4, y - 16, 8, 2, '#1fb5a6'); // gorro
+  // suction catheter tube from hand to patient's mouth
+  if (G.sucking && p) {
+    const s = slots[p.slot], mxp = s.x + 32, myp = s.y + 33;
+    const hx = f < 0 ? x - 13 : x + 13, hy = y - 3;
+    ctx.fillStyle = '#e9f0ff';
+    for (let t = 0; t <= 1; t += 0.05) ctx.fillRect(Math.round(hx + (mxp - hx) * t), Math.round(hy + (myp - hy) * t), 1, 1);
+    // suction canister on the hip
+    R(f < 0 ? x + 5 : x - 9, y - 2, 4, 6, '#d8e6ff'); R(f < 0 ? x + 5 : x - 9, y + 1, 4, 3, '#c9b93a');
+  }
+}
+
+function draw(tnow) {
+  ctx.save();
+  if (G && G.shake > 0) ctx.translate(Math.round((Math.random() - 0.5) * 4), Math.round((Math.random() - 0.5) * 4));
+  drawFloor();
+  for (let i = 0; i < 6; i++) drawSlot(i, tnow);
+  if (G) {
+    for (const q of G.particles) {
+      if (q.tube) { const s = slots[G.kine.target]; const t = Math.min(1, q.t); R(q.x + (q.tx - q.x) * t, q.y + 7 + (q.ty - q.y - 7) * t, 2, 2, q.c); }
+      else R(q.x, q.y, 2, 2, q.c);
+    }
+    drawKine(tnow);
+    for (const q of G.pops) text(q.str, Math.round(q.x - textW(q.str) / 2), Math.round(q.y), q.c);
+  }
+  ctx.restore();
+}
+
+// ---------- HUD + sizing ----------
+function hud() {
+  $('score').textContent = G.score;
+  $('hearts').textContent = '♥'.repeat(Math.max(0, G.lives)) + '♡'.repeat(Math.max(0, 3 - G.lives));
+  $('clock').textContent = clockStr();
+}
+function fit() {
+  const st = $('stage').getBoundingClientRect();
+  const scale = Math.max(1, Math.min(st.width / W, st.height / H));
+  cv.style.width = Math.floor(W * scale) + 'px';
+  cv.style.height = Math.floor(H * scale) + 'px';
+}
+window.addEventListener('resize', fit);
+fit();
+$('bestLine').textContent = best ? 'Récord: ' + best + ' pts' : '';
+
+window.__kine = () => ({ G, state }); // used by the automated test bot
+// demo ward behind title screen
+reset();
+function frame(now) {
+  const t = now / 1000;
+  const dt = Math.min(0.05, (now - last) / 1000 || 0);
+  last = now;
+  if (state === 'play') { update(dt); if (state === 'play' || state === 'over') hud(); }
+  draw(t);
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(t => { last = t; frame(t); });
+})();
+</script>

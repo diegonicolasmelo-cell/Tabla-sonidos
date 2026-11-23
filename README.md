@@ -29,3 +29,9 @@ Sin conexión, un botón de Spotify abre la canción en la app de Spotify. Conec
 
 - En iPhone, si el interruptor de silencio está activado, los efectos pueden no sonar en Safari antiguos; sube el volumen y desactiva el modo silencio.
 - Los parlantes Bluetooth agregan un pequeño retraso.
+
+## Mini juego: Kine UCI
+
+En `juego-uci/` hay un mini juego 8-bit para el navegador: un kinesiólogo recorre la UCI de adultos cama por cama haciendo maniobras torácicas y aspirando secreciones antes de que la SpO₂ de los pacientes llegue a 0. Con GitHub Pages queda en `https://<usuario>.github.io/Tabla-sonidos/juego-uci/`.
+
+- `juego-uci/juego.html`: el código del juego. `juego-uci/index.html` se regenera con el mismo comando de arriba, cambiando los nombres de archivo.
